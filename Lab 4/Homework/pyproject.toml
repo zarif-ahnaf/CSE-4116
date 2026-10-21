@@ -1,0 +1,14 @@
+[project]
+name = "homework"
+version = "0.1.0"
+description = "Lab 4 Homework — K-Means variants and agglomerative clustering"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "jupyter>=1.1.1",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.4",
+    "pandas>=3.0.6",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.16.0",
+]

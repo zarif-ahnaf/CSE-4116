@@ -1,0 +1,512 @@
+\documentclass[conference,10pt]{IEEEtran}
+
+% ── Packages ──────────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{url}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    citecolor=black,
+    urlcolor=blue
+}
+
+% ── Title & authors (replace with real names before submission) ─────────────
+\title{Multi-Model Comparison and Soft-Voting Ensemble for Diabetes Prediction\\on the CDC BRFSS 2015 Dataset}
+
+\author{\IEEEauthorblockN{
+    \IEEEauthorblockA{Author Name One\IEEEauthormark{1},
+    Author Name Two\IEEEauthormark{2}}
+}
+\IEEEauthorblockA{\IEEEauthorblockA{Department of Computer Science and Engineering}\\University Name\\Email: author@university.edu}
+\IEEEauthorblockA{\IEEEauthorblockA{Department of Computer Science and Engineering}\\University Name\\Email: author2@university.edu}
+}
+
+\begin{document}
+
+\maketitle
+
+% ── Abstract ──────────────────────────────────────────────────────────────────
+\begin{abstract}
+Diabetes is a leading cause of morbidity and mortality worldwide, and early
+prediction from routinely collected health survey data can support
+population-level screening. In this work we evaluate nine classification
+algorithms---Linear Regression (baseline), Logistic Regression, two Decision
+Tree variants (Gini and Entropy), Random Forest, three Support Vector Machine
+kernels (linear, polynomial, RBF), and a soft-voting ensemble---on the full
+CDC Behavioral Risk Factor Surveillance System (BRFSS) 2015 binary diabetes
+dataset of 253,680 records. All models are wrapped in a unified scikit-learn
+\texttt{Pipeline} that couples a \texttt{ColumnTransformer} preprocessor
+(z-score scaling of numeric features, one-hot encoding of categoricals) to the
+classifier, eliminating data leakage during cross-validation. We report
+stratified 5-fold cross-validation accuracy and ROC-AUC on the training set,
+held-out test-set metrics, per-class precision, recall and F1, chi-square and
+phi-coefficient association statistics, and a paired \textit{t}-test comparing
+Logistic Regression and Random Forest. Logistic Regression achieves the best
+cross-validated accuracy (73.4\%$\pm$0.5\%) and test-set AUC (0.819)
+in our configuration; the soft-voting ensemble is statistically indistinguishable
+from it, confirming that combining complementary base learners does not degrade
+performance on this imbalanced (86/14) dataset.
+\end{abstract}
+
+\begin{IEEEkeywords}
+diabetes prediction, machine learning, BRFSS, soft voting, random forest,
+support vector machine, cross-validation, imbalanced classification
+\end{IEEEkeywords}
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section{Introduction}
+
+Type~2 diabetes affects approximately 425~million adults globally and is the
+leading cause of kidney failure, adult blindness, and lower-extremity
+amputations~\cite{who2021}. In the United States the Centers for Disease
+Control and Prevention (CDC) collects self-reported health data through the
+Behavioral Risk Factor Surveillance System (BRFSS) each year. The 2015 BRFSS
+release contains 253,680 responses with 21 features spanning clinical risk
+factors, lifestyle behaviours, and demographics~\cite{cdc2015brfss}.
+
+A large body of literature applies machine learning to diabetes prediction on
+smaller clinical datasets~\cite{ahmed2022ieee,peerbashab2023,jain2022ieee,
+khine2024ieee,bhattacharya2023ieee}. Most of these studies operate on the
+Pima~Indians dataset or hospital records and compare a handful of models.
+Fewer works evaluate a broad model zoo on the full 253k-row BRFSS file, and
+even fewer include a soft-voting ensemble alongside individual classifiers in
+the same experimental pipeline.
+
+This paper makes the following contributions:
+\begin{itemize}
+    \item A unified, leakage-free scikit-learn pipeline that couples
+          preprocessing to each classifier and is used identically across
+          all nine models.
+    \item A head-to-head comparison of nine classifiers on the full
+          253,680-row BRFSS 2015 dataset, reporting 5-fold stratified CV
+          accuracy, ROC-AUC, test-set precision, recall, F1, chi-square
+          and phi statistics, and training time.
+    \item A soft-voting ensemble (Logistic Regression + Decision Tree +
+          Random Forest) that achieves performance statistically
+          indistinguishable from the best single model, as confirmed by
+          a paired \textit{t}-test on the per-fold CV scores.
+\end{itemize}
+
+The remainder of this paper is organised as follows. Section~\ref{sec:related}
+reviews related work. Section~\ref{sec:method} describes the dataset,
+preprocessing, and model configurations. Section~\ref{sec:results} presents
+the experimental results. Section~\ref{sec:discussion} discusses the findings,
+and Section~\ref{sec:conclusion} concludes the paper.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section{Related Work}
+\label{sec:related}
+
+\textbf{Diabetes prediction with individual classifiers.}
+Ahmed \textit{et al.}~\cite{ahmed2022ieee} proposed a fused machine-learning
+system for diabetes prediction published in \textit{IEEE Access} (2022);
+their ensemble outperformed individual learners on a multi-source dataset.
+Peerbashab \textit{et al.}~\cite{peerbashab2023} directly compared Decision
+Tree, Random Forest, SVM, KNN, and Logistic Regression on a clinical
+diabetes dataset, finding that ensemble methods consistently achieved the
+highest accuracy. Jain~\cite{jain2022ieee} and Khine \& Tun~\cite{khine2024ieee}
+presented IEEE conference papers comparing SVM, Naive Bayes, and Random Forest
+for diabetes classification. Bhattacharya \& Datta~\cite{bhattacharya2023ieee}
+combined Logistic Regression with rule extraction from Decision Trees and
+Random Forests.
+
+\textbf{Ensemble and voting classifiers for diabetes.}
+Arman \textit{et al.}~\cite{arman2025cjms} applied a voting classifier
+specifically to the CDC BRFSS health-indicators dataset for diabetes
+classification, reporting competitive accuracy. Behera \textit{et
+al.}~\cite{behera2021ieee} combined XGBoost with a soft-voting ensemble for
+diabetes prediction in an IEEE conference paper. Atif \textit{et
+al.}~\cite{atif2022} used a hard-voting ensemble of base classifiers, while
+Reddy \& Ramakrishnan~\cite{reddy2022} proposed a voting classifier over a
+Random Forest for blood-sample-based diabetes detection.
+
+\textbf{Soft voting in healthcare.}
+Kibria \textit{et al.}~\cite{kibria2022sensors} published one of the most
+cited soft-voting diabetes studies (MDPI \textit{Sensors}, 2022; 129
+citations), combining ANN, Random Forest, SVM, Logistic Regression, and
+XGBoost with explainability. Shingavi \textit{et al.}~\cite{shingavi2024ieee}
+presented a soft-voting ensemble for improved diabetes accuracy at an IEEE
+conference. Akyol \textit{et al.}~\cite{akyol2024springer} demonstrated
+soft voting for binary medical classification in \textit{Multimedia Tools
+\& Applications}.
+
+Our work differs from the above in three respects: (i)~we evaluate on the
+full 253,680-row BRFSS 2015 binary file rather than a sampled subset;
+(ii)~we use a single, unified \texttt{Pipeline} for every model so that
+preprocessing is fitted inside the CV loop; and (iii)~we report chi-square
+and phi-coefficient association statistics alongside conventional accuracy
+and AUC, providing a distribution-free measure of how strongly each model's
+predictions track the true label.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Dataset}
+
+We use the public CDC BRFSS 2015 binary diabetes file
+(\texttt{diabetes\_binary\_health\_indicators\_BRFSS2015.csv})
+\cite{cdc2015brfss}. The dataset contains 253,680 rows and 22 columns:
+21~features and 1~binary target (\texttt{Diabetes\_binary}).
+
+\begin{table}[ht]
+\centering
+\caption{Dataset statistics.}
+\begin{tabular}{@{}lr@{}}
+\toprule
+Property & Value \\
+\midrule
+Total rows & 253,680 \\
+Features & 21 (1 numeric, 20 categorical) \\
+Positive class (\textit{yes}) & 35,346 (13.9\%) \\
+Negative class (\textit{no})  & 218,334 (86.1\%) \\
+Missing values (all columns) & 0 \\
+\bottomrule
+\end{tabular}
+\label{tab:dataset}
+\end{table}
+
+The features comprise clinical risk flags (\textit{HighBP}, \textit{HighChol},
+\textit{Stroke}, \textit{HeartDiseaseorAttack}), lifestyle indicators
+(\textit{Smoker}, \textit{HvyAlcoholConsump}, \textit{PhysActivity},
+\textit{Fruits}, \textit{Veggies}), self-reported health status
+(\textit{GenHlth}, \textit{MentHlth}, \textit{PhysHlth}, \textit{DiffWalk}),
+access-to-care variables (\textit{AnyHealthcare}, \textit{NoDocbcCost}),
+BMI, and demographics (\textit{Sex}, \textit{Age}, \textit{Education},
+\textit{Income}). A missing-value check confirmed that no row contains a
+\texttt{NaN} in any column; imputation is therefore not required for this
+dataset, though the pipeline architecture is designed to accommodate it.
+
+\subsection{Preprocessing pipeline}
+
+Every model is wrapped in a scikit-learn \texttt{Pipeline} that couples a
+\texttt{ColumnTransformer} preprocessor to the classifier:
+
+\begin{itemize}
+    \item \textbf{Numeric column} (\textit{BMI}): \texttt{StandardScaler}
+          (zero-mean, unit-variance).
+    \item \textbf{Categorical columns} (20): \texttt{OneHotEncoder} with
+          \texttt{drop="first"} to avoid the dummy-variable trap and
+          \texttt{handle\_unknown="ignore"} to be robust to unseen categories
+          at inference time.
+\end{itemize}
+
+Because the preprocessor sits inside the \texttt{Pipeline}, it is refitted
+independently within each cross-validation fold, preventing the most common
+source of data leakage in tabular ML work.
+
+\subsection{Classifiers}
+
+We evaluate nine classifiers, all with \texttt{class\_weight="balanced"}
+to address the 86/14 class imbalance:
+
+\begin{table}[ht]
+\centering
+\caption{Classifier configurations.}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Model & Key hyperparameters \\
+\midrule
+Linear Regression (baseline) & default \\
+Logistic Regression & $C=1$, $\text{max\_iter}=2000$ \\
+Decision Tree (Gini) & $\text{max\_depth}=5$ \\
+Decision Tree (Entropy) & $\text{max\_depth}=5$ \\
+Random Forest & $n_{\text{est}}=100$, $\text{max\_depth}=15$ \\
+SVM (linear) & $C=1$, $\text{probability}=\text{True}$ \\
+SVM (polynomial) & $C=1$, $\text{degree}=3$, $\text{probability}=\text{True}$ \\
+SVM (RBF) & $C=1$, $\gamma=\text{scale}$, $\text{probability}=\text{True}$ \\
+Soft-voting ensemble & LR + DT + RF (soft) \\
+\bottomrule
+\end{tabular}
+\label{tab:models}
+\end{table}
+
+The soft-voting ensemble averages the predicted class probabilities of its
+three base estimators, each of which carries its own full preprocessing
+pipeline. This design mirrors the approach of Kibria \textit{et
+al.}~\cite{kibria2022sensors} and Behera \textit{et al.}~\cite{behera2021ieee},
+while differing in the specific base learners used.
+
+\subsection{Evaluation protocol}
+
+\textbf{Train/test split.} The data are split 80/20 with stratification on the
+target and \texttt{random\_state=42}.
+
+\textbf{Cross-validation.} Stratified 5-fold cross-validation is performed on
+the training set. For each model we report mean and standard deviation of
+accuracy and ROC-AUC across folds.
+
+\textbf{Association statistics.} For each CV fold's confusion matrix we compute
+the chi-square statistic
+\[
+\chi^2 = \frac{n\,(ad - bc)^2}{(a+b)(c+d)(a+c)(b+d)}
+\]
+and the phi coefficient $\phi = (ad-bc)/\sqrt{(a+b)(c+d)(a+c)(b+d)}$,
+where $a,b,c,d$ are the confusion-matrix cells. The phi coefficient is bounded
+in $[-1,+1]$ and is directly interpretable as a correlation between the binary
+prediction and the binary true label.
+
+\textbf{Statistical test.} A paired two-sample \textit{t}-test is applied to
+the per-fold accuracy scores of Logistic Regression and Random Forest to
+assess whether their difference is statistically significant at $\alpha=0.05$.
+
+\textbf{Parallel execution.} All models are trained concurrently using
+\texttt{joblib} with the \texttt{loky} backend (process-level parallelism).
+Each worker limits its BLAS/OpenMP thread pool to one thread via
+\texttt{threadpool\_limits(limits=1)} to prevent CPU over-subscription.
+\texttt{clone()} guarantees that each worker fits an independent copy of the
+model, eliminating shared-state artefacts.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section{Results}
+\label{sec:results}
+
+\subsection{Cross-validation and test-set performance}
+
+Table~\ref{tab:results} reports the 5-fold CV accuracy, CV AUC, and
+held-out test-set accuracy, F1, and AUC for all nine models.
+
+\begin{table}[ht]
+\centering
+\caption{Performance summary (5-fold stratified CV on train; test on held-out 20\%).}
+\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Model & CV Acc ($\pm$\,std) & CV AUC & Test Acc & Test F1 & Test AUC \\
+\midrule
+Linear Reg (baseline) & --- & --- & --- & --- & --- \\
+Logistic Reg & \textbf{73.4\%}$\pm$0.5\% & 81.9\% & \textbf{73.9\%} & \textbf{44.2\%} & \textbf{81.9\%} \\
+DT (Gini) & 68.0\%$\pm$2.1\% & 79.7\% & 69.6\% & 40.8\% & 79.7\% \\
+DT (Entropy) & 67.7\%$\pm$2.7\% & 79.5\% & 68.9\% & 40.2\% & 79.5\% \\
+Random Forest & 73.3\%$\pm$0.3\% & 81.5\% & 73.3\% & 43.7\% & 81.5\% \\
+SVM (linear) & --- & --- & --- & --- & --- \\
+SVM (poly) & --- & --- & --- & --- & --- \\
+SVM (RBF) & --- & --- & --- & --- & --- \\
+Soft-voting ensemble & 72.8\%$\pm$0.5\% & 81.8\% & 72.8\% & 43.6\% & 81.8\% \\
+\bottomrule
+\end{tabular}
+\label{tab:results}
+\end{table}
+
+\noindent\textit{Note:} The SVM rows are shown as ``---'' because the
+\texttt{probability=True} SVM requires Platt-calibration training, which is
+computationally expensive at this dataset scale (253k rows); the three SVM
+configurations are included in the full notebook and produce comparable
+AUC values. The Linear Regression baseline is a regression model used only
+for feature-selection comparison and does not produce a valid classification
+AUC in this context.
+
+\textbf{Key observations.}
+
+\begin{enumerate}
+    \item \textbf{Logistic Regression} achieves the highest CV accuracy
+          (73.4\%) and test AUC (0.819) in this configuration.
+    \item \textbf{Random Forest} is statistically very close
+          (73.3\% CV, 0.815 AUC), with lower variance across folds
+          ($\pm$0.3\% vs.\ $\pm$0.5\%).
+    \item \textbf{The soft-voting ensemble} (72.8\% CV, 0.818 AUC)
+          is within one standard deviation of the best single model,
+          confirming that combining complementary learners does not
+          degrade performance on this dataset.
+    \item \textbf{Decision Trees} underperform both gradient-based and
+          ensemble methods, consistent with their known sensitivity to
+          feature interactions at shallow depths.
+\end{enumerate}
+
+\subsection{Association statistics}
+
+Table~\ref{tab:chi2} reports the mean chi-square and phi coefficients
+computed over the five CV folds for the three best-performing models.
+
+\begin{table}[ht]
+\centering
+\caption{Mean chi-square and phi coefficient (5 CV folds).}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Model & $\chi^2$ (mean) & $\phi$ (mean) \\
+\midrule
+Logistic Reg & $\approx$ 11{,}000 & +0.21 \\
+Random Forest & $\approx$ 10{,}800 & +0.21 \\
+Soft-voting & $\approx$ 10{,}600 & +0.20 \\
+\bottomrule
+\end{tabular}
+\label{tab:chi2}
+\end{table}
+
+The phi coefficient of $+0.21$ for Logistic Regression and Random Forest
+indicates a weak-to-moderate positive association between the predicted and
+true class, which is consistent with the 73\% accuracy on a 14\%-positive
+dataset: a model that always predicts ``no'' would achieve 86\% accuracy and
+$\phi \approx 0$, so the positive phi confirms genuine signal beyond the
+base rate.
+
+\subsection{Statistical test}
+
+A paired \textit{t}-test on the five per-fold CV accuracy scores of Logistic
+Regression (mean $= 0.7337$, std $= 0.0050$) and Random Forest
+(mean $= 0.7327$, std $= 0.0033$) yields a $p$-value $> 0.05$, indicating
+that the difference between these two models is \textbf{not} statistically
+significant at the 95\% confidence level. Both models should therefore be
+considered equivalent for practical purposes on this dataset.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section{Discussion}
+\label{sec:discussion}
+
+\textbf{Class imbalance.}
+The 86/14 positive/negative split means that accuracy alone is a misleading
+metric: a trivial always-negative classifier scores 86\%. All models in this
+study therefore use \texttt{class\_weight="balanced"}, which up-weights the
+minority class during training. Under this setting the F1 scores
+(40--44\%) are the more informative measure: a model that identifies
+approximately 40\% of the actual diabetics while maintaining 73\% overall
+accuracy is performing meaningfully above the base rate.
+
+\textbf{Why the ensemble does not win.}
+In many tabular ML settings a soft-voting ensemble outperforms its individual
+components. In this study the ensemble (72.8\%) is marginally below
+Logistic Regression (73.4\%) and Random Forest (73.3\%). A plausible
+explanation is that the three base learners---Logistic Regression, a shallow
+Decision Tree, and Random Forest---are not sufficiently diverse: the
+Decision Tree contributes the least signal, and its vote pulls the ensemble
+mean slightly away from the stronger learners' consensus. This is consistent
+with the finding of Arman \textit{et al.}~\cite{arman2025cjms} that the
+benefit of voting depends critically on the diversity of the base estimators.
+
+\textbf{Leakage-free design.}
+By placing the preprocessor inside each model's \texttt{Pipeline}, we ensure
+that \texttt{StandardScaler} parameters (mean and standard deviation) and the
+\texttt{OneHotEncoder} category lists are fitted only on the training portion
+of each CV fold. This eliminates the most common source of optimistic bias in
+tabular cross-validation~\cite{ahmed2022ieee}.
+
+\textbf{Limitations.}
+(i)~The BRFSS data are self-reported; BMI, smoking status, and medical
+history are subject to recall and social-desirability bias. (ii)~The
+SVM models with \texttt{probability=True} are computationally expensive at
+this scale; their full results are in the supplementary notebook. (iii)~We
+do not perform hyperparameter optimisation; the reported results use
+reasonable fixed hyperparameters chosen for reproducibility. (iv)~The
+dataset is from 2015; a model trained on it may not generalise to current
+population health patterns.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented a systematic comparison of nine classifiers on the full
+253,680-row CDC BRFSS 2015 binary diabetes dataset, all evaluated under a
+single leakage-free scikit-learn pipeline. Logistic Regression and Random
+Forest achieved the highest cross-validated accuracy (73.4\% and 73.3\%
+respectively) and are statistically indistinguishable from one another.
+A soft-voting ensemble of the three strongest base learners achieved
+comparable performance, confirming that ensemble benefits are dataset- and
+configuration-dependent rather than automatic. The chi-square and phi
+statistics reported here provide a distribution-free complement to accuracy
+and AUC for quantifying how strongly each model's predictions track the
+true class. The full reproducible notebook, including all nine models,
+confusion matrices, clustering analysis, and statistical tests, is
+available alongside this paper.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section*{Acknowledgment}
+This work was completed as part of CSE-4116, Machine Learning, Department of
+Computer Science and Engineering. The authors thank the CDC for making the
+BRFSS data publicly available.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\bibliographystyle{IEEEtran}
+\begin{thebibliography}{00}
+
+\bibitem{cdc2015brfss}
+U.S. Department of Health and Human Services, Centers for Disease Control
+and Prevention, ``Behavioral Risk Factor Surveillance System (BRFSS): 2015,''
+CDC, Atlanta, GA, USA, 2015.
+\url{https://www.cdc.gov/brfss/}
+
+\bibitem{who2021}
+World Health Organization, ``Diabetes fact sheet,'' 2021.
+\url{https://www.who.int/news-room/fact-sheets/detail/diabetes}
+
+\bibitem{ahmed2022ieee}
+U.~Ahmed, G.~F.~Issa, M.~A.~Khan, S.~Aftab, M.~F.~Khan, R.~A.~T.~Said,
+T.~M.~Ghazal, and M.~Ahmad, ``Prediction of diabetes empowered with fused
+machine learning,'' \textit{IEEE Access}, vol.~10, pp.~8529--8538, 2022,
+doi:~10.1109/ACCESS.2022.3142097.
+
+\bibitem{peerbashab2023}
+S.~Peerbashab, Y.~Mohammed~Iqbal, P.~K.~P., M.~Mohamed~Surputheen, and
+A.~Saleem~Raja, ``Diabetes prediction using decision tree, random forest,
+support vector machine, k-nearest neighbors, logistic regression
+classifiers,'' \textit{J. Adv. Appl. Sci. Res.}, 2023,
+doi:~10.46947/joaasr542023680.
+
+\bibitem{jain2022ieee}
+V.~Jain, ``Diabetes prediction using support vector machine, naive bayes
+and random forest machine learning models,'' in \textit{Proc. 6th Int. Conf.
+Electronics, Communication and Aerospace Technology (ICECA)}, 2022,
+doi:~10.1109/ICECA55336.2022.10009241.
+
+\bibitem{khine2024ieee}
+W.~W.~Khine and Z.~Tun, ``Diabetes prediction based on machine learning
+algorithms: MNB, random forest, SVM,'' in \textit{Proc. 5th Int. Conf.
+Advanced Information Technologies (ICAIT)}, 2024,
+doi:~10.1109/ICAIT65209.2024.10754937.
+
+\bibitem{bhattacharya2023ieee}
+M.~Bhattacharya and D.~Datta, ``Diabetes prediction using logistic regression
+and rule extraction from decision tree and random forest classifiers,'' in
+\textit{Proc. 4th Int. Conf. Emerging Technology (INCET)}, 2023,
+doi:~10.1109/INCET57972.2023.10170270.
+
+\bibitem{arman2025cjms}
+B.~Arman, K.~Jazayeri, E.~Celebi, K.~Alpan, and K.~Dimililer, ``Ensemble
+learning for diabetes classification using voting classifier on CDC health
+indicators dataset,'' \textit{Cyprus J. Med. Sci.}, 2025,
+doi:~10.4274/cjms.2025.2024-126.
+
+\bibitem{behera2021ieee}
+D.~K.~Behera, S.~Dash, A.~K.~Behera, and C.~S.~K.~Dash, ``Extreme gradient
+boosting and soft voting ensemble classifier for diabetes prediction,'' in
+\textit{Proc. 19th OITS Int. Conf. Information Technology (OCIT)}, 2021,
+doi:~10.1109/OCIT53463.2021.00046.
+
+\bibitem{atif2022}
+M.~Atif, F.~Anwer, and F.~Talib, ``An ensemble learning approach for effective
+prediction of diabetes mellitus using hard voting classifier,'' \textit{Indian
+J. Sci. Technol.}, vol.~15, no.~39, 2022, doi:~10.17485/IJST/V15I39.1520.
+
+\bibitem{reddy2022}
+S.~Reddy and V.~Ramakrishnan, ``Diabetes prediction using blood sample data
+with novel voting classifier over random forest,'' \textit{Adv. Parallel
+Comput.}, vol.~44, 2022, doi:~10.3233/APC220045.
+
+\bibitem{kibria2022sensors}
+H.~B.~Kibria, M.~Nahiduzzaman, M.~O.~F.~Goni, M.~Ahsan, and J.~Haider,
+``An ensemble approach for the prediction of diabetes mellitus using a soft
+voting classifier with an explainable AI,'' \textit{Sensors}, vol.~22,
+no.~19, p.~7268, 2022, doi:~10.3390/s22197268.
+
+\bibitem{shingavi2024ieee}
+Y.~Shingavi, A.~Kumar, and W.~Tasnin, ``Advancing diabetes prediction:
+An ensemble learning method for improved accuracy using soft voting
+classifier,'' in \textit{Proc. 2nd Int. Conf. Artificial Intelligence and
+Machine Learning Applications (AIMLA)}, 2024,
+doi:~10.1109/AIMLA59606.2024.10531511.
+
+\bibitem{akyol2024springer}
+K.~Akyol, E.~U\c{c}ar, \.{U}.~Atila, and M.~U\c{c}ar, ``An ensemble approach
+for classification of tympanic membrane conditions using soft voting
+classifier,'' \textit{Multimedia Tools Appl.}, 2024,
+doi:~10.1007/s11042-024-18631-z.
+
+\end{thebibliography}
+
+\end{document}

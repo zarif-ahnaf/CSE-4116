@@ -1,0 +1,16 @@
+[project]
+name = "tb-chest-xray-hog-svm"
+version = "0.1.0"
+description = "HOG + classifier comparison for TB chest X-ray classification (algorithms from CSE-4116)"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "scikit-learn>=1.5",
+    "opencv-python-headless>=4.10",
+    "pillow>=10.4",
+    "pandas>=2.2",
+    "jupyter>=1.1.1",
+    "matplotlib>=3.11.2",
+    "scikit-image>=0.26.0",
+]
